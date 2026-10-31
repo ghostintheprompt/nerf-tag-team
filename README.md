@@ -53,7 +53,7 @@ python3 lab/nerf_tag_team.py score \
   --markdown runs/claude-paired-2026-10-31/brief.md
 ```
 
-The receipt reports paired candidate-better/same/worse counts for task completion, factual accuracy, and tone fit. The optional Markdown brief puts the design, results, boundary failures, and limits on one page. It reports refusal-boundary failures separately as hard counts, includes style markers per 1,000 words as a diagnostic, and calculates Cohen's kappa and observed agreement between reviewers. It stores response hashes and counts, not response text. The report is descriptive: it does not run significance tests, infer semantic quality, or generalize beyond the tested model/version and cases.
+The receipt reports paired candidate-better/same/worse counts for task completion, factual accuracy, and tone fit. The optional Markdown brief puts the design, results, boundary failures, and limits on one page. It reports refusal-boundary failures separately as hard counts, includes style markers per 1,000 words as a diagnostic, and calculates Cohen's kappa and observed agreement between reviewers. Every response receipt carries its prepared-prompt and user-request hashes; the top-level receipt hashes the manifest and review file. It stores hashes and counts, not response text. The report is descriptive: it does not run significance tests, infer semantic quality, or generalize beyond the tested model/version and cases.
 
 The older one-pair audit remains available for quick fixture checks:
 

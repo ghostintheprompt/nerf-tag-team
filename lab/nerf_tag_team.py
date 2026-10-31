@@ -376,6 +376,16 @@ def load_json(path: Path, label: str) -> dict[str, Any]:
     return value
 
 
+def resolve_run_path(run_root: Path, relative_path: str, label: str) -> Path:
+    if not isinstance(relative_path, str) or not relative_path:
+        raise LabError(f"Manifest {label} path is missing.")
+    root = run_root.resolve()
+    resolved = (root / relative_path).resolve()
+    if not resolved.is_relative_to(root):
+        raise LabError(f"Manifest {label} path escapes the experiment directory.")
+    return resolved
+
+
 def record_response(manifest_path: Path, blind_id: str, source_path: Path) -> Path:
     manifest = load_json(manifest_path, "manifest")
     target_relative = None
@@ -389,10 +399,7 @@ def record_response(manifest_path: Path, blind_id: str, source_path: Path) -> Pa
     if not target_relative:
         raise LabError(f"Blind response ID not found in manifest: {blind_id}")
     response = read_response(source_path)
-    target = (manifest_path.parent / target_relative).resolve()
-    run_root = manifest_path.parent.resolve()
-    if not target.is_relative_to(run_root):
-        raise LabError("Manifest response path escapes the experiment directory.")
+    target = resolve_run_path(manifest_path.parent, target_relative, "response")
     write_exclusive(target, response)
     return target
 
@@ -423,6 +430,8 @@ def cohen_kappa(rows: list[tuple[str, str]]) -> dict[str, Any]:
 
 
 def score_experiment(manifest_path: Path, reviews_path: Path) -> dict[str, Any]:
+    manifest_source = manifest_path.read_text(encoding="utf-8")
+    reviews_source = reviews_path.read_text(encoding="utf-8")
     manifest = load_json(manifest_path, "manifest")
     reviews_payload = load_json(reviews_path, "reviews")
     if manifest.get("schema_version") != 2 or manifest.get("design") != "randomized_order_paired_baseline_candidate":
@@ -448,12 +457,35 @@ def score_experiment(manifest_path: Path, reviews_path: Path) -> dict[str, Any]:
     rubric_fields = ("task_completion", "factual_accuracy", "tone_fit")
     responses: dict[str, dict[str, Any]] = {}
     interrater_rows: dict[str, list[tuple[str, str]]] = {field: [] for field in (*rubric_fields, "boundary")}
-    for pair in manifest.get("pairs", []):
+    manifest_pairs = manifest.get("pairs")
+    if not isinstance(manifest_pairs, list) or not manifest_pairs:
+        raise LabError("Manifest must contain at least one paired trial.")
+    all_blind_ids: set[str] = set()
+    run_root = manifest_path.parent
+    for pair in manifest_pairs:
+        arms = pair.get("arms")
+        if not isinstance(arms, dict) or set(arms) != {"baseline", "candidate"}:
+            raise LabError("Each trial must contain exactly one baseline and one candidate arm.")
+        if arms["baseline"].get("user_prompt_sha256") != arms["candidate"].get("user_prompt_sha256"):
+            raise LabError(f"{pair.get('pair_id', 'trial')}: baseline and candidate user prompts differ.")
         for condition, arm in pair.get("arms", {}).items():
             blind_id = arm["blind_id"]
-            response_path = (manifest_path.parent / arm["response_path"]).resolve()
-            if not response_path.is_relative_to(manifest_path.parent.resolve()):
-                raise LabError("Manifest response path escapes the experiment directory.")
+            if not isinstance(blind_id, str) or blind_id in all_blind_ids:
+                raise LabError("Blind response IDs must be unique strings.")
+            all_blind_ids.add(blind_id)
+            prompt_path = resolve_run_path(run_root, arm.get("prompt_path"), "prompt")
+            prompt_record = load_json(prompt_path, f"prompt {blind_id}")
+            prompt_text = prompt_record.get("prompt")
+            if (
+                prompt_record.get("blind_id") != blind_id
+                or prompt_record.get("prompt_sha256") != arm.get("prompt_sha256")
+                or not isinstance(prompt_text, str)
+                or sha256_text(prompt_text) != arm.get("prompt_sha256")
+                or prompt_record.get("case_id") != pair.get("case_id")
+                or prompt_record.get("trial") != pair.get("trial")
+            ):
+                raise LabError(f"Prepared prompt integrity check failed for {blind_id}.")
+            response_path = resolve_run_path(run_root, arm.get("response_path"), "response")
             response_text = read_response(response_path)
             rows = reviews_by_id.get(blind_id, [])
             if len(rows) != 2 or len({row.get("reviewer_id") for row in rows}) != 2:
@@ -479,6 +511,8 @@ def score_experiment(manifest_path: Path, reviews_path: Path) -> dict[str, Any]:
                 "condition": condition,
                 "case_id": pair["case_id"],
                 "trial": pair["trial"],
+                "prompt_sha256": arm["prompt_sha256"],
+                "user_prompt_sha256": arm["user_prompt_sha256"],
                 "analysis": analysis,
                 "reviews": normalized,
             }
@@ -534,6 +568,8 @@ def score_experiment(manifest_path: Path, reviews_path: Path) -> dict[str, Any]:
             "condition": result["condition"],
             "case_id": result["case_id"],
             "trial": result["trial"],
+            "prompt_sha256": result["prompt_sha256"],
+            "user_prompt_sha256": result["user_prompt_sha256"],
             **result["analysis"],
         }
         for blind_id, result in responses.items()
@@ -548,6 +584,8 @@ def score_experiment(manifest_path: Path, reviews_path: Path) -> dict[str, Any]:
         "paired_trial_count": len(manifest["pairs"]),
         "response_count": len(responses),
         "random_seed": manifest["random_seed"],
+        "manifest_sha256": sha256_text(manifest_source),
+        "review_file_sha256": sha256_text(reviews_source),
         "case_file_sha256": manifest["case_file_sha256"],
         "context_file_sha256": manifest["context_file_sha256"],
         "overall_descriptive_summary": summarize(manifest["pairs"]),

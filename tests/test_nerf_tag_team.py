@@ -271,6 +271,23 @@ class NerfTagTeamTests(unittest.TestCase):
                 lab.record_response(manifest_path, blind_id, source)
             self.assertFalse((Path(temp) / "outside.txt").exists())
 
+    def test_score_rejects_prompt_tampering_before_reading_responses(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "run"
+            manifest = lab.plan_experiment(
+                self.cases, "fixture-model", "v1", "fixed settings", 2, 13,
+                ["plain-technical"], root,
+            )
+            arm = manifest["pairs"][0]["arms"]["baseline"]
+            prompt_path = root / arm["prompt_path"]
+            prompt = json.loads(prompt_path.read_text())
+            prompt["prompt"] += " altered after planning"
+            prompt_path.write_text(json.dumps(prompt))
+            reviews = root / "reviews.json"
+            reviews.write_text(json.dumps({"reviews": []}))
+            with self.assertRaisesRegex(lab.LabError, "integrity check failed"):
+                lab.score_experiment(root / "manifest.json", reviews)
+
 
 if __name__ == "__main__":
     unittest.main()

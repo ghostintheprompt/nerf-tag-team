@@ -1,6 +1,6 @@
 # Nerf Tag Team
 
-Anthropic has a tone problem, and Claude is still easy to red-team like any other model. All talk, no substance until the behavior survives a controlled test.
+Anthropic has a tone problem, and Claude is still easy to red-team like any other model. All talk, no substance. Claude has yet to survive a test.
 
 Nerf Tag Team is a local evaluation harness for one narrow question: does a delivery-only context reduce canned apologies and lectures while preserving task quality, accuracy, and safety boundaries? It prepares paired prompts, randomizes their order, keeps response IDs blind to reviewers, and scores repeated trials from two independent human reviewers.
 
